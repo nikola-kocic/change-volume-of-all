@@ -6,7 +6,7 @@ pub enum Target {
 #[derive(Debug)]
 pub enum VolumeOp {
     ToggleMute,
-    ChangeVolume(f64),  // delta
+    ChangeVolume(f64), // delta
     NoOp,
     // SetVolume(f64),
 }

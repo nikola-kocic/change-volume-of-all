@@ -1,8 +1,7 @@
-use clap::{App, Arg, ArgGroup};
 use crate::operations::{Target, VolumeOp};
+use clap::{App, Arg, ArgGroup};
 
 pub struct Arguments {
-    pub debug: bool,
     pub operation: VolumeOp,
     pub target: Target,
     pub pid: Option<u32>,
@@ -53,26 +52,15 @@ pub fn get_arguments() -> Arguments {
             Arg::with_name("traverse_children")
                 .long("children")
                 .short("c")
-                .help(
-                    "If specified pid doesn't have audio streams, try with its children",
-                )
+                .help("If specified pid doesn't have audio streams, try with its children")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("pid")
                 .short("p")
                 .long("pid")
-                .help(
-                    "Process ID to control, get active application if not specified",
-                )
+                .help("Process ID to control, get active application if not specified")
                 .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("debug")
-                .long("debug")
-                .short("d")
-                .help("Turn on debug output")
-                .takes_value(false),
         )
         .group(
             ArgGroup::with_name("operation")
@@ -92,7 +80,7 @@ pub fn get_arguments() -> Arguments {
                 let volume_delta = volume_delta_s.parse::<f64>().unwrap();
                 VolumeOp::ChangeVolume(volume_delta)
             } else {
-                let set_volume_present = matches.is_present("set_volume");
+                // let set_volume_present = matches.is_present("set_volume");
                 // if set_volume_present {
                 //     let set_volume_s: &str = matches.value_of("set_volume").unwrap();
                 //     let set_volume = set_volume_s.parse::<f64>().unwrap();
@@ -108,11 +96,12 @@ pub fn get_arguments() -> Arguments {
         match matches.value_of("target").unwrap_or("all") {
             "all" => Target::All,
             "active" => Target::Active,
-            _ => { panic!("Invalid target val"); }
+            _ => {
+                panic!("Invalid target val");
+            }
         }
     };
 
-    let debug = matches.is_present("debug");
     let traverse_children = matches.is_present("traverse_children");
 
     let pid = {
@@ -125,7 +114,6 @@ pub fn get_arguments() -> Arguments {
         }
     };
     Arguments {
-        debug,
         pid,
         operation,
         target,

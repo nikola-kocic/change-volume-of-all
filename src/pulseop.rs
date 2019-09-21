@@ -220,18 +220,25 @@ pub fn perform_on_sinks_of_pids<F>(
             debug!("get_sink_input_info_list: Got sink {}", sinkinputinfo.index);
             sink_process_info.borrow_mut().sink_count += 1;
             let proplist = &sinkinputinfo.proplist;
-            if let Some(pid_s) = proplist.get_str("application.process.id") {
-                let pid = i32::from_str_radix(&pid_s, 10).unwrap();
-                if pids.iter().any(|&v| v == pid) {
+            let success = proplist
+                .get_str("application.process.id")
+                .and_then(|pid_s: String| {
+                    let pid = i32::from_str_radix(&pid_s, 10).unwrap();
+                    pids.iter().find(|&&v| v == pid)
+                })
+                .map(|pid: &i32| {
                     dbg!(pid);
                     op(
                         &context.borrow(),
                         &sinkinputinfo,
                         Box::new(callback.clone()),
                     );
-                }
-            };
-            callback(true);
+                })
+                .is_some();
+
+            if !success {
+                callback(true);
+            }
         }
         pulse::callbacks::ListResult::End => {
             debug!("get_sink_input_info_list: Got End");
