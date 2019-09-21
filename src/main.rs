@@ -18,7 +18,7 @@ use pulse::mainloop::standard::Mainloop;
 use pulse::volume::ChannelVolumes;
 use pulse::volume::Volume;
 
-fn run_pa_function(f: &'static dyn Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>))
+fn run_pa_function<F>(f: F) where F: Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) + 'static
 {
     let mainloop = Rc::new(RefCell::new(
         Mainloop::new().expect("Failed to create mainloop"),
@@ -322,29 +322,36 @@ fn run() -> Option<()> {
         return None;
     }
     let arg = args.nth(1).unwrap();
-
-    let op: &'static dyn Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) = match arg.as_ref() {
-        "up" => &move |context, done| {
+    let pids = Rc::new([458_013]);
+    match arg.as_ref() {
+        "up" => run_pa_function(move |context, done| {
             perform_on_all_sinks(context, done, op_increase_volume);
-        },
-        "down" => &move |context, done| {
+        }),
+        "down" => run_pa_function(move |context, done| {
             perform_on_all_sinks(context, done, op_decrease_volume);
-        },
-        "mute" => &move |context, done| {
+        }),
+        "mute" => run_pa_function(move |context, done| {
             perform_on_all_sinks(context, done, op_toggle_mute);
+        }),
+        "up_active" => {
+            run_pa_function(move |context, done| {
+                perform_something(context, done, pids.clone(), op_increase_volume);
+            });
         },
-        "mute_active" => &move |context, done| {
-            perform_something(context, done, Rc::new([458_013]), op_toggle_mute);
-        },
-        "noop" => &move |context, done| {
+        "down_active" => run_pa_function(move |context, done| {
+            perform_something(context, done, pids.clone(), op_decrease_volume);
+        }),
+        "mute_active" => run_pa_function(move |context, done| {
+            perform_something(context, done, pids.clone(), op_toggle_mute);
+        }),
+        "noop" => run_pa_function(move |context, done| {
             perform_something(context, done, Rc::new([]), op_noop);
-        },
+        }),
         _ => {
             eprintln!("Error: Unknown argument value: {}", arg);
             return None;
         }
     };
-    run_pa_function(op);
     Some(())
 }
 
