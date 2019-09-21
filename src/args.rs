@@ -5,7 +5,6 @@ pub struct Arguments {
     pub operation: VolumeOp,
     pub target: Target,
     pub pid: Option<u32>,
-    pub traverse_children: bool,
 }
 
 pub fn get_arguments() -> Arguments {
@@ -47,13 +46,6 @@ pub fn get_arguments() -> Arguments {
                 .help("Target all sinks or just active app")
                 .takes_value(true)
                 .possible_values(&["all", "active"]),
-        )
-        .arg(
-            Arg::with_name("traverse_children")
-                .long("children")
-                .short("c")
-                .help("If specified pid doesn't have audio streams, try with its children")
-                .takes_value(false),
         )
         .arg(
             Arg::with_name("pid")
@@ -102,8 +94,6 @@ pub fn get_arguments() -> Arguments {
         }
     };
 
-    let traverse_children = matches.is_present("traverse_children");
-
     let pid = {
         if matches.is_present("pid") {
             let pid_s: &str = matches.value_of("pid").unwrap();
@@ -117,6 +107,5 @@ pub fn get_arguments() -> Arguments {
         pid,
         operation,
         target,
-        traverse_children,
     }
 }

@@ -115,7 +115,6 @@ fn flatten_tree_breadth_first_test() {
     };
     let actual = flatten_tree_breadth_first(tree, Vec::new());
     let expected = [
-        //20363,
         20365, 21549, 20401, 20403, 21587, 21586, 20449, 20448, 21660, 20531, 21661, 20532,
     ];
     assert_eq!(actual, expected);

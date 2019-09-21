@@ -23,15 +23,10 @@ fn run() -> Option<()> {
 
     let arguments = args::get_arguments();
 
-    let (arg_pid, traverse_children) = (arguments.pid, arguments.traverse_children);
-
+    let arg_pid = arguments.pid;
     let get_pids = move || {
         let pid = i32::try_from(arg_pid.unwrap_or_else(activewindow::active_window_pid)).unwrap();
-        if traverse_children {
-            Rc::new(childpids::get_children_pids(pid))
-        } else {
-            Rc::new(vec![pid])
-        }
+        Rc::new(childpids::get_children_pids(pid))
     };
 
     match arguments.operation {
