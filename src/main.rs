@@ -195,7 +195,7 @@ where
     });
 }
 
-fn perform_something<F>(
+fn perform_on_sinks_of_pids<F>(
     context: Rc<RefCell<Context>>,
     done: Rc<atomic::AtomicBool>,
     pids: Rc<[i32]>,
@@ -356,16 +356,16 @@ fn run() -> Option<()> {
             perform_on_all_sinks(context, done, op_toggle_mute);
         }),
         "up_active" => run_pa_function(move |context, done| {
-            perform_something(context, done, pids.clone(), op_increase_volume);
+            perform_on_sinks_of_pids(context, done, pids.clone(), op_increase_volume);
         }),
         "down_active" => run_pa_function(move |context, done| {
-            perform_something(context, done, pids.clone(), op_decrease_volume);
+            perform_on_sinks_of_pids(context, done, pids.clone(), op_decrease_volume);
         }),
         "mute_active" => run_pa_function(move |context, done| {
-            perform_something(context, done, pids.clone(), op_toggle_mute);
+            perform_on_sinks_of_pids(context, done, pids.clone(), op_toggle_mute);
         }),
         "noop" => run_pa_function(move |context, done| {
-            perform_something(context, done, Rc::new([]), op_noop);
+            perform_on_sinks_of_pids(context, done, Rc::new([]), op_noop);
         }),
         _ => {
             eprintln!("Error: Unknown argument value: {}", arg);
