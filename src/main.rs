@@ -194,7 +194,7 @@ where
 }
 
 
-fn perform_something<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, op: F)
+fn perform_something<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, pids: Rc<[i32]>, op: F)
 where
     F: Fn(&Context, &dyn VolumeManipulatible, CallbackF) + 'static,
 {
@@ -220,12 +220,12 @@ where
             let proplist = &sinkinputinfo.proplist;
             if let Some(pid_s) = proplist.get_str("application.process.id") {
                 let pid = i32::from_str_radix(&pid_s, 10).unwrap();
-                dbg!(pid);
+                if pids.iter().any(|&v| v == pid) {
+                    dbg!(pid);
+                    op(&context.borrow(), &sinkinputinfo, Box::new(callback.clone()));
+                }
             };
             callback(true);
-            op(&context.borrow(), &sinkinputinfo, Box::new(move |_success| {
-
-            }));
         }
         pulse::callbacks::ListResult::End => {
             debug!("get_sink_input_info_list: Got End");
@@ -333,8 +333,11 @@ fn run() -> Option<()> {
         "mute" => &move |context, done| {
             perform_on_all_sinks(context, done, op_toggle_mute);
         },
+        "mute_active" => &move |context, done| {
+            perform_something(context, done, Rc::new([458_013]), op_toggle_mute);
+        },
         "noop" => &move |context, done| {
-            perform_something(context, done, op_noop);
+            perform_something(context, done, Rc::new([]), op_noop);
         },
         _ => {
             eprintln!("Error: Unknown argument value: {}", arg);
