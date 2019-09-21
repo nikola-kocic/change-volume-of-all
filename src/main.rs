@@ -18,9 +18,7 @@ use pulse::mainloop::standard::Mainloop;
 use pulse::volume::ChannelVolumes;
 use pulse::volume::Volume;
 
-fn run_pa_function<F>(f: F)
-where
-    F: Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) + 'static,
+fn run_pa_function(f: &'static dyn Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>))
 {
     let mainloop = Rc::new(RefCell::new(
         Mainloop::new().expect("Failed to create mainloop"),
@@ -325,19 +323,25 @@ fn run() -> Option<()> {
     }
     let arg = args.nth(1).unwrap();
 
-    let op = match arg.as_ref() {
-        "up" => op_increase_volume,
-        "down" => op_decrease_volume,
-        "mute" => op_toggle_mute,
-        "noop" => op_noop,
+    let op: &'static dyn Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) = match arg.as_ref() {
+        "up" => &move |context, done| {
+            perform_on_all_sinks(context, done, op_increase_volume);
+        },
+        "down" => &move |context, done| {
+            perform_on_all_sinks(context, done, op_decrease_volume);
+        },
+        "mute" => &move |context, done| {
+            perform_on_all_sinks(context, done, op_toggle_mute);
+        },
+        "noop" => &move |context, done| {
+            perform_something(context, done, op_noop);
+        },
         _ => {
             eprintln!("Error: Unknown argument value: {}", arg);
             return None;
         }
     };
-    run_pa_function(move |context, done| {
-        perform_something(context, done, op);
-    });
+    run_pa_function(op);
     Some(())
 }
 
