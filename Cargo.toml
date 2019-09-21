@@ -10,6 +10,11 @@ edition = "2018"
 libpulse-binding = "2.13.0"
 log = "0.4.6"
 
+xcb = "0.8.2"
+xcb-util = { version = "0.2.1", features = ["ewmh"] }
+clap = "2.33.0"
+sysinfo = "0.9.5"
+
 [dependencies.env_logger]
 version = "0.6.2"
 default-features = false
