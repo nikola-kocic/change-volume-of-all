@@ -18,7 +18,9 @@ use pulse::mainloop::standard::Mainloop;
 use pulse::volume::ChannelVolumes;
 use pulse::volume::Volume;
 
-fn run_pa_function<F>(f: F) where F: Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) + 'static
+fn run_pa_function<F>(f: F)
+where
+    F: Fn(Rc<RefCell<Context>>, Rc<atomic::AtomicBool>) + 'static,
 {
     let mainloop = Rc::new(RefCell::new(
         Mainloop::new().expect("Failed to create mainloop"),
@@ -193,9 +195,12 @@ where
     });
 }
 
-
-fn perform_something<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, pids: Rc<[i32]>, op: F)
-where
+fn perform_something<F>(
+    context: Rc<RefCell<Context>>,
+    done: Rc<atomic::AtomicBool>,
+    pids: Rc<[i32]>,
+    op: F,
+) where
     F: Fn(&Context, &dyn VolumeManipulatible, CallbackF) + 'static,
 {
     let sink_process_info = Rc::new(RefCell::new(SinkProcessInfo::new()));
@@ -222,7 +227,11 @@ where
                 let pid = i32::from_str_radix(&pid_s, 10).unwrap();
                 if pids.iter().any(|&v| v == pid) {
                     dbg!(pid);
-                    op(&context.borrow(), &sinkinputinfo, Box::new(callback.clone()));
+                    op(
+                        &context.borrow(),
+                        &sinkinputinfo,
+                        Box::new(callback.clone()),
+                    );
                 }
             };
             callback(true);
@@ -259,7 +268,10 @@ fn percent_to_volume(percent: f64) -> Option<Volume> {
     }
 }
 
-fn modify_volumes_by_percent(sinkinfo: &dyn VolumeManipulatible, delta_percent: f64) -> Option<ChannelVolumes> {
+fn modify_volumes_by_percent(
+    sinkinfo: &dyn VolumeManipulatible,
+    delta_percent: f64,
+) -> Option<ChannelVolumes> {
     if !sinkinfo.uses_db_volume() {
         debug!("Sink {:?} does not use db volume", sinkinfo.name());
         return None;
@@ -270,14 +282,19 @@ fn modify_volumes_by_percent(sinkinfo: &dyn VolumeManipulatible, delta_percent: 
         let percent = volume_to_percent(*volume);
         debug!(
             "Current volume percent = {} for sink {:?}",
-            percent, sinkinfo.name()
+            percent,
+            sinkinfo.name()
         );
         *volume = percent_to_volume(percent + delta_percent)?;
     }
     Some(volumes)
 }
 
-fn op_increase_volume(context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback: CallbackF) {
+fn op_increase_volume(
+    context: &Context,
+    sinkinfo: &dyn VolumeManipulatible,
+    mut callback: CallbackF,
+) {
     if let Some(new_volumes) = modify_volumes_by_percent(sinkinfo, 5.0) {
         sinkinfo.set_volumes(&new_volumes, context, callback);
     } else {
@@ -285,7 +302,11 @@ fn op_increase_volume(context: &Context, sinkinfo: &dyn VolumeManipulatible, mut
     }
 }
 
-fn op_decrease_volume(context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback: CallbackF) {
+fn op_decrease_volume(
+    context: &Context,
+    sinkinfo: &dyn VolumeManipulatible,
+    mut callback: CallbackF,
+) {
     if let Some(new_volumes) = modify_volumes_by_percent(sinkinfo, -5.0) {
         sinkinfo.set_volumes(&new_volumes, context, callback);
     } else {
@@ -303,7 +324,8 @@ fn op_noop(_context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback:
         dbg!(percent);
         debug!(
             "Current volume percent = {} for sink {:?}",
-            percent, sinkinfo.name()
+            percent,
+            sinkinfo.name()
         );
     }
     callback(true);
@@ -333,11 +355,9 @@ fn run() -> Option<()> {
         "mute" => run_pa_function(move |context, done| {
             perform_on_all_sinks(context, done, op_toggle_mute);
         }),
-        "up_active" => {
-            run_pa_function(move |context, done| {
-                perform_something(context, done, pids.clone(), op_increase_volume);
-            });
-        },
+        "up_active" => run_pa_function(move |context, done| {
+            perform_something(context, done, pids.clone(), op_increase_volume);
+        }),
         "down_active" => run_pa_function(move |context, done| {
             perform_something(context, done, pids.clone(), op_decrease_volume);
         }),
