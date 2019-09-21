@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::atomic;
 
 use log::{debug, error, warn};
-use pulse::context::introspect::SinkInfo;
+use pulse::context::introspect::{SinkInfo, SinkInputInfo};
 use pulse::context::Context;
 use pulse::def::Retval;
 use pulse::mainloop::standard::IterateResult;
@@ -91,9 +91,114 @@ impl SinkProcessInfo {
 
 type CallbackF = Box<dyn FnMut(bool) + 'static>;
 
-fn do_work<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, op: F)
+trait VolumeManipulatible<'a> {
+    fn volumes(&self) -> pulse::volume::ChannelVolumes;
+    fn uses_db_volume(&self) -> bool;
+    fn name(&self) -> &'a Option<std::borrow::Cow<'a, str>>;
+    fn is_mute(&self) -> bool;
+    fn set_mute(&self, mute: bool, context: &Context, callback: CallbackF);
+    fn set_volumes(&self, volumes: &ChannelVolumes, context: &Context, callback: CallbackF);
+}
+
+impl<'a> VolumeManipulatible<'a> for &'a SinkInfo<'a> {
+    fn volumes(&self) -> pulse::volume::ChannelVolumes {
+        self.volume
+    }
+
+    fn uses_db_volume(&self) -> bool {
+        self.flags & pulse::def::sink_flags::DECIBEL_VOLUME
+            == pulse::def::sink_flags::DECIBEL_VOLUME
+    }
+
+    fn name(&self) -> &'a Option<std::borrow::Cow<'a, str>> {
+        &self.name
+    }
+
+    fn is_mute(&self) -> bool {
+        self.mute
+    }
+
+    fn set_volumes(&self, volumes: &ChannelVolumes, context: &Context, callback: CallbackF) {
+        let mut introspect = context.introspect();
+        introspect.set_sink_volume_by_index(self.index, volumes, Some(callback));
+    }
+
+    fn set_mute(&self, mute: bool, context: &Context, callback: CallbackF) {
+        let mut introspect = context.introspect();
+        introspect.set_sink_mute_by_index(self.index, mute, Some(callback));
+    }
+}
+
+impl<'a> VolumeManipulatible<'a> for &'a SinkInputInfo<'a> {
+    fn volumes(&self) -> pulse::volume::ChannelVolumes {
+        self.volume
+    }
+
+    fn uses_db_volume(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &'a Option<std::borrow::Cow<'a, str>> {
+        &self.name
+    }
+
+    fn is_mute(&self) -> bool {
+        self.mute
+    }
+
+    fn set_volumes(&self, volumes: &ChannelVolumes, context: &Context, callback: CallbackF) {
+        let mut introspect = context.introspect();
+        introspect.set_sink_input_volume(self.index, volumes, Some(callback));
+    }
+
+    fn set_mute(&self, mute: bool, context: &Context, callback: CallbackF) {
+        let mut introspect = context.introspect();
+        introspect.set_sink_input_mute(self.index, mute, Some(callback));
+    }
+}
+
+fn perform_on_all_sinks<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, op: F)
 where
-    F: Fn(&Context, &SinkInfo, CallbackF) + 'static,
+    F: Fn(&Context, &dyn VolumeManipulatible, CallbackF) + 'static,
+{
+    let sink_process_info = Rc::new(RefCell::new(SinkProcessInfo::new()));
+
+    let callback = {
+        let sink_process_info = Rc::clone(&sink_process_info);
+        let done = Rc::clone(&done);
+
+        move |_success: bool| {
+            let mut sink_process_info_borrow = sink_process_info.borrow_mut();
+            sink_process_info_borrow.processed_sink_count += 1;
+            debug!("callback {:?}", sink_process_info_borrow);
+            sink_process_info_borrow.check_if_done(&done);
+        }
+    };
+
+    let introspect = context.borrow().introspect();
+    introspect.get_sink_info_list(move |e| match e {
+        pulse::callbacks::ListResult::Item(sink) => {
+            debug!("get_sink_info_list: Got sink {}", sink.index);
+            sink_process_info.borrow_mut().sink_count += 1;
+            op(&context.borrow(), &sink, Box::new(callback.clone()));
+        }
+        pulse::callbacks::ListResult::End => {
+            debug!("get_sink_info_list: Got End");
+            let mut sink_process_info_borrow = sink_process_info.borrow_mut();
+            sink_process_info_borrow.got_all_sinks = true;
+            sink_process_info_borrow.check_if_done(&done);
+        }
+        pulse::callbacks::ListResult::Error => {
+            error!("get_sink_info_list: Got Error");
+            done.store(true, atomic::Ordering::Relaxed);
+        }
+    });
+}
+
+
+fn perform_something<F>(context: Rc<RefCell<Context>>, done: Rc<atomic::AtomicBool>, op: F)
+where
+    F: Fn(&Context, &dyn VolumeManipulatible, CallbackF) + 'static,
 {
     let sink_process_info = Rc::new(RefCell::new(SinkProcessInfo::new()));
 
@@ -110,28 +215,31 @@ where
     };
 
     let introspect = context.borrow().introspect();
-    introspect.get_sink_info_list(move |e| match e {
-        pulse::callbacks::ListResult::Item(sink) => {
-            debug!("get_sink_info_list: Got sink {}", sink.index);
+    introspect.get_sink_input_info_list(move |e| match e {
+        pulse::callbacks::ListResult::Item(sinkinputinfo) => {
+            debug!("get_sink_input_info_list: Got sink {}", sinkinputinfo.index);
             sink_process_info.borrow_mut().sink_count += 1;
-            op(&context.borrow(), sink, Box::new(callback.clone()));
+            let proplist = &sinkinputinfo.proplist;
+            if let Some(pid_s) = proplist.get_str("application.process.id") {
+                let pid = i32::from_str_radix(&pid_s, 10).unwrap();
+                dbg!(pid);
+            };
+            callback(true);
+            op(&context.borrow(), &sinkinputinfo, Box::new(move |_success| {
+
+            }));
         }
         pulse::callbacks::ListResult::End => {
-            debug!("get_sink_info_list: Got End");
+            debug!("get_sink_input_info_list: Got End");
             let mut sink_process_info_borrow = sink_process_info.borrow_mut();
             sink_process_info_borrow.got_all_sinks = true;
             sink_process_info_borrow.check_if_done(&done);
         }
         pulse::callbacks::ListResult::Error => {
-            error!("get_sink_info_list: Got Error");
+            error!("get_sink_input_info_list: Got Error");
             done.store(true, atomic::Ordering::Relaxed);
         }
     });
-}
-
-const fn sink_uses_db_volume(sinkinfo: &SinkInfo) -> bool {
-    sinkinfo.flags & pulse::def::sink_flags::DECIBEL_VOLUME
-        == pulse::def::sink_flags::DECIBEL_VOLUME
 }
 
 fn volume_to_percent(volume: Volume) -> f64 {
@@ -153,53 +261,51 @@ fn percent_to_volume(percent: f64) -> Option<Volume> {
     }
 }
 
-fn modify_volumes_by_percent(sinkinfo: &SinkInfo, delta_percent: f64) -> Option<ChannelVolumes> {
-    if !sink_uses_db_volume(sinkinfo) {
-        debug!("Sink {} does not use db volume", sinkinfo.index);
+fn modify_volumes_by_percent(sinkinfo: &dyn VolumeManipulatible, delta_percent: f64) -> Option<ChannelVolumes> {
+    if !sinkinfo.uses_db_volume() {
+        debug!("Sink {:?} does not use db volume", sinkinfo.name());
         return None;
     }
 
-    let mut volumes = sinkinfo.volume;
+    let mut volumes = sinkinfo.volumes();
     for volume in volumes.get_mut() {
         let percent = volume_to_percent(*volume);
         debug!(
-            "Current volume percent = {} for sink {}",
-            percent, sinkinfo.index
+            "Current volume percent = {} for sink {:?}",
+            percent, sinkinfo.name()
         );
         *volume = percent_to_volume(percent + delta_percent)?;
     }
     Some(volumes)
 }
 
-fn op_increase_volume(context: &Context, sinkinfo: &SinkInfo, mut callback: CallbackF) {
+fn op_increase_volume(context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback: CallbackF) {
     if let Some(new_volumes) = modify_volumes_by_percent(sinkinfo, 5.0) {
-        let mut introspect = context.introspect();
-        introspect.set_sink_volume_by_index(sinkinfo.index, &new_volumes, Some(callback));
+        sinkinfo.set_volumes(&new_volumes, context, callback);
     } else {
-        callback(false)
+        callback(false);
     }
 }
 
-fn op_decrease_volume(context: &Context, sinkinfo: &SinkInfo, mut callback: CallbackF) {
+fn op_decrease_volume(context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback: CallbackF) {
     if let Some(new_volumes) = modify_volumes_by_percent(sinkinfo, -5.0) {
-        let mut introspect = context.introspect();
-        introspect.set_sink_volume_by_index(sinkinfo.index, &new_volumes, Some(callback));
+        sinkinfo.set_volumes(&new_volumes, context, callback);
     } else {
-        callback(false)
+        callback(false);
     }
 }
 
-fn op_toggle_mute(context: &Context, sinkinfo: &SinkInfo, callback: CallbackF) {
-    let mut introspect = context.introspect();
-    introspect.set_sink_mute_by_index(sinkinfo.index, !sinkinfo.mute, Some(callback));
+fn op_toggle_mute(context: &Context, sinkinfo: &dyn VolumeManipulatible, callback: CallbackF) {
+    sinkinfo.set_mute(!sinkinfo.is_mute(), context, callback);
 }
 
-fn op_noop(_context: &Context, sinkinfo: &SinkInfo, mut callback: CallbackF) {
-    for volume in sinkinfo.volume.get() {
+fn op_noop(_context: &Context, sinkinfo: &dyn VolumeManipulatible, mut callback: CallbackF) {
+    for volume in sinkinfo.volumes().get() {
         let percent = volume_to_percent(*volume);
+        dbg!(percent);
         debug!(
-            "Current volume percent = {} for sink {}",
-            percent, sinkinfo.index
+            "Current volume percent = {} for sink {:?}",
+            percent, sinkinfo.name()
         );
     }
     callback(true);
@@ -230,7 +336,7 @@ fn run() -> Option<()> {
         }
     };
     run_pa_function(move |context, done| {
-        do_work(context, done, op);
+        perform_something(context, done, op);
     });
     Some(())
 }
